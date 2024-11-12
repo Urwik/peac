@@ -36,6 +36,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <opencv2/opencv.hpp>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 
 //#define DEBUG_CLUSTER
 //#define DEBUG_CALC
@@ -68,6 +70,27 @@ namespace ahc {
 		//get point at row i, column j
 		bool get(const int i, const int j, double &x, double &y, double &z) const { return false; }
 	};
+
+
+	// pcl::PointCloud interface for our ahc::PlaneFitter
+	template<class PointT>
+	struct OrganizedImage3D {
+		const pcl::PointCloud<PointT>& cloud;
+		//note: ahc::PlaneFitter assumes mm as unit!!!
+		const double unitScaleFactor;
+
+		OrganizedImage3D(const pcl::PointCloud<PointT>& c) : cloud(c), unitScaleFactor(1) {}
+		OrganizedImage3D(const OrganizedImage3D& other) : cloud(other.cloud), unitScaleFactor(other.unitScaleFactor) {}
+
+		inline int width() const { return cloud.width; }
+		inline int height() const { return cloud.height; }
+		inline bool get(const int row, const int col, double& x, double& y, double& z) const {
+			const PointT& pt=cloud.at(col,row);
+			x=pt.x*unitScaleFactor; y=pt.y*unitScaleFactor; z=pt.z*unitScaleFactor; //TODO: will this slowdown the speed?
+			return std::isnan(z)==0; //return false if current depth is NaN
+		}
+	};
+
 
 	//three types of erode operation for segmentation refinement
 	enum ErodeType {
@@ -902,7 +925,7 @@ namespace ahc {
 #ifdef DEBUG_INIT
 			static int cnt=0;
 			cv::namedWindow("debug initGraph");
-			cv::cvtColor(dInit,dInit,CV_RGB2BGR);
+			cv::cvtColor(dInit,dInit,cv::COLOR_RGB2BGR);
 			cv::imshow("debug initGraph", dInit);
 			std::stringstream ss;
 			ss<<saveDir<<"/output/db_init"<<std::setw(5)<<std::setfill('0')<<cnt++<<".png";

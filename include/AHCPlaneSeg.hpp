@@ -234,7 +234,9 @@ struct PlaneSeg {
 		this->rid = root_block_id;
 
 		bool windowValid=true;
-		int nanCnt=0, nanCntTh=winHeight*winWidth/2;
+		int nanCnt=0;
+		int nanCntTh= std::floor(winHeight*winWidth*(1-params.nanTh));
+
 		//calc stats
 		for(int i=seed_row, icnt=0; icnt<winHeight && i<imgHeight; ++i, ++icnt) {
 			for(int j=seed_col, jcnt=0; jcnt<winWidth && j<imgWidth; ++j, ++jcnt) {
@@ -242,7 +244,8 @@ struct PlaneSeg {
 				if(!points.get(i,j,x,y,z)) {
 					if(params.initType==INIT_LOOSE) {
 						++nanCnt;
-						if(nanCnt<nanCntTh) continue;
+						if(nanCnt<nanCntTh) 
+							continue;
 					}
 #ifdef DEBUG_INIT
 					this->type=TYPE_MISSING_DATA;

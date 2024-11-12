@@ -57,6 +57,8 @@ struct ParamSet {
 	double depthAlpha;	//unit: none, corresponds to the 2*\alpha in the paper
 	double depthChangeTol;		//unit: u mm
 
+	float nanTh;
+
 	InitType initType;
 
 	enum Phase {
@@ -71,7 +73,7 @@ struct ParamSet {
 		angle_near(MACRO_DEG2RAD(15.0)), angle_far(MACRO_DEG2RAD(90.0)),
 		similarityTh_merge(std::cos(MACRO_DEG2RAD(60.0))),
 		similarityTh_refine(std::cos(MACRO_DEG2RAD(30.0))),
-		depthAlpha(0.04), depthChangeTol(0.02),
+		depthAlpha(0.04), depthChangeTol(0.02), nanTh(0.15),
 		initType(INIT_STRICT)
 	{}
 
