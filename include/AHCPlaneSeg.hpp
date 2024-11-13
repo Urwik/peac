@@ -237,9 +237,12 @@ struct PlaneSeg {
 		int nanCnt=0;
 		int nanCntTh= std::floor(winHeight*winWidth*(1-params.nanTh));
 
-		//calc stats
+		// VALIDA CADA VENTANA A PARTIR DE SUS PIXELES/PUNTOS (windowValid) (Con haber 1 pixel malo, se rechaza la ventana)
 		for(int i=seed_row, icnt=0; icnt<winHeight && i<imgHeight; ++i, ++icnt) {
 			for(int j=seed_col, jcnt=0; jcnt<winWidth && j<imgWidth; ++j, ++jcnt) {
+				
+				
+				// Filter NaN points
 				double x=0,y=0,z=10000;
 				if(!points.get(i,j,x,y,z)) {
 					if(params.initType==INIT_LOOSE) {
@@ -250,58 +253,84 @@ struct PlaneSeg {
 #ifdef DEBUG_INIT
 					this->type=TYPE_MISSING_DATA;
 #endif
-					windowValid=false; break;
+					windowValid=false;
+					break;
 				}
+
+				// Filter Horizontal depth discontinuity 
 				double xn=0,yn=0,zn=10000;
 				if(j+1<imgWidth && (points.get(i,j+1,xn,yn,zn)
 					&& depthDisContinuous(z,zn,params))) {
+				
+					windowValid=false; 
 #ifdef DEBUG_INIT
-						this->type=TYPE_DEPTH_DISCONTINUE;
+					this->type=TYPE_DEPTH_DISCONTINUE;
 #endif
-						windowValid=false; break;
+					break;
 				}
+
+				// Filter Vertical depth discontinuity 
 				if(i+1<imgHeight && (points.get(i+1,j,xn,yn,zn)
 					&& depthDisContinuous(z,zn,params))) {
+					
+					windowValid=false;
 #ifdef DEBUG_INIT
-						this->type=TYPE_DEPTH_DISCONTINUE;
+					this->type=TYPE_DEPTH_DISCONTINUE;
 #endif
-						windowValid=false; break;
+					break;
 				}
+				
+				// Point is valid
 				this->stats.push(x,y,z);
 			}
-			if(!windowValid) break;
+
+			if(!windowValid) 
+				break;
 		}
+
+		// VENTANA VALIDA
 		if(windowValid) {//if nan or depth-discontinuity shows, this obj will be rejected
 			this->nouse=false;
 			this->N=this->stats.N;
 #ifdef DEBUG_INIT
 			this->type=TYPE_NORMAL;
 #endif
-		} else {
+		} 
+		
+		// VENTANA NO VALIDA
+		else {
 			this->N=0;
 			this->stats.clear();
 			this->nouse=true;
 		}
 
-		if(this->N<4) {
-			this->mse=this->curvature=std::numeric_limits<double>::quiet_NaN();
-		} else {
+		// nO SUFICIENTE SPUTNOS PARA CALCULAR EL PLANO
+		if(this->N < 4) {
+			this->mse = std::numeric_limits<double>::quiet_NaN();
+			this->curvature = std::numeric_limits<double>::quiet_NaN();
+		} 
+		
+		// SUFICIENTES PUNTOS PARA CALCULAR EL PLANO
+		else {
 			this->stats.compute(this->center, this->normal, this->mse, this->curvature);
+
 #ifdef DEBUG_CALC
 			this->mseseq.push_back(cv::Vec2d(this->N,this->mse));
 #endif
-			//nbs information to be maintained outside the class
-			//typically when initializing the graph structure
+			//nbs information to be maintained outside the class typically when initializing the graph structure
 		}
+		
 #if defined(DEBUG_INIT) || defined(DEBUG_CLUSTER)
+		// ADD COLOR DEPENDING ON THE NORMAL
 		const uchar clx=uchar((this->normal[0]+1.0)*0.5*255.0);
 		const uchar cly=uchar((this->normal[1]+1.0)*0.5*255.0);
 		const uchar clz=uchar((this->normal[2]+1.0)*0.5*255.0);
 		this->normalClr=cv::Vec3b(clx,cly,clz);
+
+		// ADD RANDOM COLOR
 		this->clr=cv::Vec3b(rand()%255,rand()%255,rand()%255);
 #endif
-		//std::cout<<this->curvature<<std::endl;
-	}
+	} //end of Plane constructor
 
 	/**
 	*  \brief construct a new PlaneSeg from two PlaneSeg pa and pb when trying to merge
