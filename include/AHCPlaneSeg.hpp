@@ -29,11 +29,20 @@
 #include <set>					//PlaneSeg::NbSet
 #include <vector>				//mseseq
 #include <limits>				//quiet_NaN
+#include <Eigen/Core>
+#include <opencv2/core/eigen.hpp>
 
 #include "AHCTypes.hpp"		//shared_ptr
 #include "eig33sym.hpp"		//PlaneSeg::Stats::compute
 #include "AHCParamSet.hpp"		//depthDisContinuous
 #include "DisjointSet.hpp"	//PlaneSeg::mergeNbsFrom
+
+#include "timer.hpp"
+
+#define TIMER
+#ifdef TIMER
+Timer timer;
+#endif
 
 namespace ahc {
 
@@ -125,6 +134,10 @@ struct PlaneSeg {
 		inline void compute(double center[3], double normal[3],
 			double& mse, double& curvature) const
 		{
+			#ifdef TIMER
+			auto start = std::chrono::high_resolution_clock::now();
+			#endif
+
 			assert(N>=4);
 
 			const double sc=((double)1.0)/this->N;//this->ids.size();
@@ -153,9 +166,109 @@ struct PlaneSeg {
 			}
 			mse = sv[0]*sc;
 			curvature=sv[0]/(sv[0]+sv[1]+sv[2]);
+
+			#ifdef TIMER
+			auto end = std::chrono::high_resolution_clock::now();
+			auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+			std::cout << "S duration:" <<  duration.count() << std::endl;
+			#endif
 		}
 	} stats;					//member points' 1st & 2nd order statistics
 
+
+	struct NeighborNormal {
+		double normal[3];
+		double curvature;
+
+		/**
+		*  \brief PCA-based plane fitting
+		*  
+		*  \param [out] center center of mass of the PlaneSeg
+		*  \param [out] normal unit normal vector of the PlaneSeg (ensure normal.z>=0)
+		*  \param [out] mse mean-square-error of the plane fitting
+		*  \param [out] curvature defined as in pcl
+		*/
+		inline void compute(const cv::Mat& window_block, double center[3], double normal[3], double& mse, double& curvature) const
+		{
+
+#ifdef TIMER
+			auto start = std::chrono::high_resolution_clock::now();
+#endif
+
+			// Check if rows and cols are even
+			if (window_block.rows % 2 == 0 && window_block.cols % 2 == 0) {
+				// Calculate the virtual center point using the four central neighbors
+				int mid_row = window_block.rows / 2; // redondeo hacia arriba
+				int mid_col = window_block.cols / 2; // redondeo hacia arriba
+
+				// Get the four central neighbors
+				cv::Vec3f center_tl = window_block.at<cv::Vec3f>(mid_row -1, mid_col - 1) ;
+				cv::Vec3f center_tr = window_block.at<cv::Vec3f>(mid_row -1, mid_col);
+				cv::Vec3f center_bl = window_block.at<cv::Vec3f>(mid_row, mid_col - 1);
+				cv::Vec3f center_br = window_block.at<cv::Vec3f>(mid_row, mid_col);
+
+				cv::Vec3f center_center = (center_tl + center_tr + center_bl + center_br) / 4;
+				center[0] = center_center(0);
+				center[1] = center_center(1);
+				center[2] = center_center(2);
+
+				cv::Vec3f edge_tl = window_block.at<cv::Vec3f>(0, 0);
+				cv::Vec3f edge_tr = window_block.at<cv::Vec3f>(0, window_block.cols - 1);
+				cv::Vec3f edge_bl = window_block.at<cv::Vec3f>(window_block.rows - 1, 0);
+				cv::Vec3f edge_br = window_block.at<cv::Vec3f>(window_block.rows - 1, window_block.cols - 1);
+
+				// Vectores
+				cv::Vec3f vec_tl = center_tl - edge_tl;
+				cv::Vec3f vec_tr = center_tr - edge_tr;
+				cv::Vec3f vec_bl = center_bl - edge_bl;
+				cv::Vec3f vec_br = center_br - edge_br;
+
+				Eigen::Vector3f vec_tl_eigen {vec_tl(0),vec_tl(1),vec_tl(2)};
+				Eigen::Vector3f vec_tr_eigen {vec_tr(0),vec_tr(1),vec_tr(2)};
+				Eigen::Vector3f vec_bl_eigen {vec_bl(0),vec_bl(1),vec_bl(2)};
+				Eigen::Vector3f vec_br_eigen {vec_br(0),vec_br(1),vec_br(2)};	
+
+				Eigen::Vector3f n_left = vec_tl_eigen.cross(vec_bl_eigen);
+				Eigen::Vector3f n_right = vec_tr_eigen.cross(vec_br_eigen);
+				Eigen::Vector3f n_top = vec_tl_eigen.cross(vec_tr_eigen);
+				Eigen::Vector3f n_bottom = vec_bl_eigen.cross(vec_br_eigen);
+
+				Eigen::Vector3f n = (n_left + n_right + n_top + n_bottom) / 4;
+
+				n.normalize();
+
+				normal[0] = n[0];
+				normal[1] = n[1];
+				normal[2] = n[2];
+
+				// Calculate the curvature
+				double A = n_left.norm() + n_right.norm() + n_top.norm() + n_bottom.norm();
+				double B = (n_left + n_right + n_top + n_bottom).norm();
+
+				double PI= 3.1416;
+
+				curvature = (std::sqrt( 8 * PI * (A-B))) / A;
+
+				mse = 0;
+
+				#ifdef TIMER
+				auto end = std::chrono::high_resolution_clock::now();
+				auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+				std::cout << "N duration:" <<  duration.count() << std::endl;
+				#endif
+
+			}
+			else {
+				std::cout << "El tamaño de la ventana no es par." << std::endl;
+				std::cout << "Ancho: " << window_block.cols << " Alto: " << window_block.rows << std::endl;
+			}
+
+		}
+
+
+	}; 
+
+	NeighborNormal nei_normal;
 	int rid;					//root block id
 	double mse;					//mean square error
 	double center[3]; 			//q: plane center (center of mass)
@@ -236,8 +349,10 @@ struct PlaneSeg {
 		bool windowValid=true;
 		int nanCnt=0;
 		int nanCntTh= std::floor(winHeight*winWidth*(1-params.nanTh));
+		cv::Mat window_block(winHeight, winWidth, CV_32FC3);
+		window_block.setTo(cv::Vec3f(0,0,0));
 
-		// VALIDA CADA VENTANA A PARTIR DE SUS PIXELES/PUNTOS (windowValid) (Con haber 1 pixel malo, se rechaza la ventana)
+		// VALIDA CADA VENTANA A PARTIR DE SUS PIXELES/PUNTOS (windowValid) (Con haber 1 pixel con depth discontinuity, se rechaza la ventana)
 		for(int i=seed_row, icnt=0; icnt<winHeight && i<imgHeight; ++i, ++icnt) {
 			for(int j=seed_col, jcnt=0; jcnt<winWidth && j<imgWidth; ++j, ++jcnt) {
 				
@@ -282,6 +397,7 @@ struct PlaneSeg {
 				
 				// Point is valid
 				this->stats.push(x,y,z);
+				window_block.at<cv::Vec3f>(icnt,jcnt)=cv::Vec3f(x,y,z);
 			}
 
 			if(!windowValid) 
@@ -312,7 +428,9 @@ struct PlaneSeg {
 		
 		// SUFICIENTES PUNTOS PARA CALCULAR EL PLANO
 		else {
-			this->stats.compute(this->center, this->normal, this->mse, this->curvature);
+			std::cout << "## Warn ##: Se estan calculando las normales de dos formas." << std::endl;
+			this->nei_normal.compute(window_block, this->center, this->normal, this->mse, this->curvature);
+			// this->stats.compute(this->center, this->normal, this->mse, this->curvature);
 
 #ifdef DEBUG_CALC
 			this->mseseq.push_back(cv::Vec2d(this->N,this->mse));
