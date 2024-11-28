@@ -39,7 +39,6 @@
 
 #include "timer.hpp"
 
-#define TIMER
 #ifdef TIMER
 Timer timer;
 #endif
@@ -135,7 +134,7 @@ struct PlaneSeg {
 		inline void compute(double center[3], double normal[3],
 			double& mse, double& curvature) const
 		{
-			#ifdef TIMER
+			#ifdef STATS_TIMER
 			auto start = std::chrono::high_resolution_clock::now();
 			#endif
 
@@ -168,7 +167,7 @@ struct PlaneSeg {
 			mse = sv[0]*sc;
 			curvature=sv[0]/(sv[0]+sv[1]+sv[2]);
 
-			#ifdef TIMER
+			#ifdef STATS_TIMER
 			auto end = std::chrono::high_resolution_clock::now();
 			auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 			std::cout << "S duration:" <<  duration.count() << std::endl;

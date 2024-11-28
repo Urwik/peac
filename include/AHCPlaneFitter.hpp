@@ -336,6 +336,10 @@ namespace ahc
 						   const std::vector<int> *const pIdxMap,	   // if pIdxMap!=0 pMembership->at(i).at(j)=pIdxMap(pixIdx)
 						   cv::Mat *pSeg)
 		{
+
+#ifdef DEBUG
+			std::cout << "Refining details..." << std::endl;
+#endif
 			if (pMembership == 0 && pSeg == 0)
 				return;
 			std::vector<bool> isValidExtractedPlane; // some planes might be eroded completely
@@ -910,9 +914,14 @@ namespace ahc
 		void initGraph(PlaneSegMinMSEQueue &minQ) 
 		{
 
+#ifdef DEBUG
+			std::cout << "Initializing the graph..." << std::endl;
+#endif
 #ifdef DEBUG_INIT
 			dInit.create(this->height, this->width, CV_8UC3);
 			dInit.setTo(cv::Vec3b(0, 0, 0));
+			int valid_nodes = 0;
+			int invalid_nodes = 0;
 #endif
 
 			// 1. ##  INIT NODOS
@@ -942,6 +951,7 @@ namespace ahc
 						minQ.push(p);
 						// this->blkStats[i*Nw+j]=p->stats;
 #ifdef DEBUG_INIT
+						++valid_nodes;
 						// const uchar cl=uchar(p->mse*255/dynThresh);
 						// const cv::Vec3b clr(cl,cl,cl);
 						dInit(cv::Range(i * windowHeight, (i + 1) * windowHeight),
@@ -960,6 +970,7 @@ namespace ahc
 					{
 						nodes[i * Nw + j] = 0;
 #ifdef DEBUG_INIT
+						++invalid_nodes;
 						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
 						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
 						static const cv::Scalar blackColor(0, 0, 0, 1);
@@ -997,12 +1008,18 @@ namespace ahc
 			}
 #ifdef DEBUG_INIT
 			// cv::applyColorMap(dInit, dInit,  cv::COLORMAP_COOL);
+			std::cout << "\tValid nodes: " << valid_nodes << std::endl;
+			std::cout << "\tInvalid nodes: " << invalid_nodes << std::endl;
 #endif
 #ifdef DEBUG_CALC
 			int nEdge = 0;
 			this->numEdges.clear();
 			this->numNodes.clear();
 #endif
+#ifdef DEBUG
+			std::cout << " - Initializing the edges..." << std::endl;
+#endif
+
 
 			// 2. ## INIT EDGES
 
@@ -1122,7 +1139,7 @@ namespace ahc
 			cv::imshow("debug initGraph", dInit);
 			std::stringstream ss;
 			ss << saveDir << "/output/db_init" << std::setw(5) << std::setfill('0') << cnt++ << ".png";
-			std::cout << ss.str() << std::endl;
+			std::cout << "Saving debug init graph node image at: " << ss.str() << std::endl;
 			cv::imwrite(ss.str(), dInit);
 #endif
 #ifdef DEBUG_CALC
@@ -1146,6 +1163,10 @@ namespace ahc
 		 */
 		int ahCluster(PlaneSegMinMSEQueue &minQ, [[maybe_unused]]bool debug = true)
 		{
+
+#ifdef DEBUG
+			std::cout << "AH Clustering..." << std::endl;
+#endif
 #if !defined(DEBUG_INIT) && defined(DEBUG_CLUSTER)
 			dInit.create(this->height, this->width, CV_8UC3);
 #endif
