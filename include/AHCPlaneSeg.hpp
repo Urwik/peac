@@ -49,7 +49,7 @@ namespace ahc {
 //return true if d0 and d1 is discontinuous
 inline static bool depthDisContinuous(const double d0, const double d1, const ParamSet& params)
 {
-	return fabs(d0-d1) > params.T_dz(d0);
+	return std::fabs(d0-d1) > params.T_dz(d0);
 }
 
 /**
@@ -61,11 +61,12 @@ struct PlaneSeg {
 	typedef PlaneSeg* Ptr;
 	typedef ahc::shared_ptr<PlaneSeg> shared_ptr;
 
+
+
 	/**
-	*  \brief An internal struct holding this PlaneSeg's member points' 1st and 2nd order statistics
-	*  
-	*  \details It is usually dynamically allocated and garbage collected by boost::shared_ptr
-	*/
+	 * \brief An internal struct holding this PlaneSeg's member points' 1st and 2nd order statistics
+	  \details It is usually dynamically allocated and garbage collected by boost::shared_ptr
+	  */
 	struct Stats {
 		double sx, sy, sz, //sum of x/y/z
 			sxx, syy, szz, //sum of xx/yy/zz
@@ -173,16 +174,22 @@ struct PlaneSeg {
 			std::cout << "S duration:" <<  duration.count() << std::endl;
 			#endif
 		}
-	} stats;					//member points' 1st & 2nd order statistics
+	};					//member points' 1st & 2nd order statistics
 
 
-	struct NeighborNormal {
+#ifdef USE_NEIGHBOR_STATS
+	/**
+	 * \brief Struct to store the plane statistics, as the center, the normal, curvature an mse
+	 * It employs a method described in: T. -k. Lee, S. Lim, S. Lee, S. An and S. -y. Oh, "Indoor mapping using planes extracted from noisy RGB-D sensors,"
+	 * \details It only estimate aproximate parameters. It uses only the central point and the edge points of the window to calculate the plane statistics
+	 */
+	struct NeighborStats {
 		double normal[3];
 		double curvature;
 
 		/**
 		*  \brief PCA-based plane fitting
-		*  
+		*  \param [in] window_block block of points
 		*  \param [out] center center of mass of the PlaneSeg
 		*  \param [out] normal unit normal vector of the PlaneSeg (ensure normal.z>=0)
 		*  \param [out] mse mean-square-error of the plane fitting
@@ -195,39 +202,117 @@ struct PlaneSeg {
 			auto start = std::chrono::high_resolution_clock::now();
 #endif
 
+			// cv::Vec3f centroid;
+			// std::vector<cv::Vec3f> points;
+			// for(int i=0; i<window_block.rows; i++) {
+			// 	for(int j=0; j<window_block.cols; j++) {
+			// 		points.push_back(window_block.at<cv::Vec3f>(i,j));
+			// 		centroid += window_block.at<cv::Vec3f>(i,j);
+			// 	}
+			// }
+			// centroid = centroid / (window_block.rows * window_block.cols);
+			// center[0] = centroid(0);
+			// center[1] = centroid(1);
+			// center[2] = centroid(2);
+
+			// Eigen::Vector3f centroid_eigen {centroid(0),centroid(1),centroid(2)};
+
 			// Check if rows and cols are even
 			if (window_block.rows % 2 == 0 && window_block.cols % 2 == 0) {
 				// Calculate the virtual center point using the four central neighbors
 				int mid_row = window_block.rows / 2; // redondeo hacia arriba
 				int mid_col = window_block.cols / 2; // redondeo hacia arriba
 
-				// Get the four central neighbors
+				// Compute the virtual center from the four central points
+				cv::Vec3f virtual_center;
 				cv::Vec3f center_tl = window_block.at<cv::Vec3f>(mid_row -1, mid_col - 1) ;
 				cv::Vec3f center_tr = window_block.at<cv::Vec3f>(mid_row -1, mid_col);
 				cv::Vec3f center_bl = window_block.at<cv::Vec3f>(mid_row, mid_col - 1);
 				cv::Vec3f center_br = window_block.at<cv::Vec3f>(mid_row, mid_col);
 
-				cv::Vec3f center_center = (center_tl + center_tr + center_bl + center_br) / 4;
-				center[0] = center_center(0);
-				center[1] = center_center(1);
-				center[2] = center_center(2);
+				std::vector<cv::Vec3f> center_points;
 
+				if(!std::isnan(center_tl(2))) 
+					center_points.push_back(center_tl);
+				if(!std::isnan(center_tr(2)))
+					center_points.push_back(center_tr);
+				if(!std::isnan(center_bl(2)))
+					center_points.push_back(center_bl);
+				if(!std::isnan(center_br(2)))
+					center_points.push_back(center_br);
+
+				// Calculate the virtual center
+				virtual_center = std::accumulate(center_points.begin(), center_points.end(), cv::Vec3f(0,0,0)) / static_cast<float>(center_points.size());
+
+				// GET THE EDGES OF THE WINDOW
+				// TOP LEFT
+				std::uint8_t padding = 0;
 				cv::Vec3f edge_tl = window_block.at<cv::Vec3f>(0, 0);
+				while (std::isnan(edge_tl(2))) {
+					if (padding > window_block.rows*0.3) {
+						std::cout << "Todos los puntos de la ventana son NaN" << std::endl;
+						break;
+					}
+					padding++;
+					edge_tl = window_block.at<cv::Vec3f>(0 + padding, 0 + padding);
+				}
+				
+				// TOP RIGHT
+				padding = 0;
 				cv::Vec3f edge_tr = window_block.at<cv::Vec3f>(0, window_block.cols - 1);
+				while (std::isnan(edge_tr(2))) {
+					if (padding > window_block.rows*0.3) {
+						std::cout << "Todos los puntos de la ventana son NaN" << std::endl;
+						break;
+					}
+					padding++;
+					edge_tr = window_block.at<cv::Vec3f>(0 + padding, window_block.cols - 1 - padding);
+				}
+				
+				// BOTTOM LEFT
+				padding = 0;
 				cv::Vec3f edge_bl = window_block.at<cv::Vec3f>(window_block.rows - 1, 0);
+				while (std::isnan(edge_bl(2))) {
+					if (padding > window_block.rows*0.3) {
+						std::cout << "Todos los puntos de la ventana son NaN" << std::endl;
+						break;
+					}
+					padding++;
+					edge_bl = window_block.at<cv::Vec3f>(window_block.rows - 1 - padding, 0 + padding);
+				}
+
+				// BOTTOM RIGHT
+				padding = 0;
 				cv::Vec3f edge_br = window_block.at<cv::Vec3f>(window_block.rows - 1, window_block.cols - 1);
+				while (std::isnan(edge_br(2))) {
+					if (padding > window_block.rows*0.3) {
+						std::cout << "Todos los puntos de la ventana son NaN" << std::endl;
+						break;
+					}
+					padding++;
+					edge_br = window_block.at<cv::Vec3f>(window_block.rows - 1 - padding, window_block.cols - 1 - padding);
+				}
 
-				// Vectores
-				cv::Vec3f vec_tl = center_tl - edge_tl;
-				cv::Vec3f vec_tr = center_tr - edge_tr;
-				cv::Vec3f vec_bl = center_bl - edge_bl;
-				cv::Vec3f vec_br = center_br - edge_br;
+				// Calculate the centroid of the plane
+				cv::Vec3f centroid_cv = (virtual_center + edge_tl + edge_tr + edge_bl + edge_br) / 5;
+				Eigen::Vector3f centroid_eigen {centroid_cv(0),centroid_cv(1),centroid_cv(2)};
+				center[0] = centroid_cv(0);
+				center[1] = centroid_cv(1);
+				center[2] = centroid_cv(2);
 
+				// Vector from the center to the edge
+				cv::Vec3f vec_tl =  edge_tl - center_tl;
+				cv::Vec3f vec_tr =  edge_tr - center_tr;
+				cv::Vec3f vec_bl =  edge_bl - center_bl;
+				cv::Vec3f vec_br =  edge_br - center_br;
+
+				// TRANSFORM TO EIGEN
 				Eigen::Vector3f vec_tl_eigen {vec_tl(0),vec_tl(1),vec_tl(2)};
 				Eigen::Vector3f vec_tr_eigen {vec_tr(0),vec_tr(1),vec_tr(2)};
 				Eigen::Vector3f vec_bl_eigen {vec_bl(0),vec_bl(1),vec_bl(2)};
 				Eigen::Vector3f vec_br_eigen {vec_br(0),vec_br(1),vec_br(2)};	
 
+				// COMPUTE THE NORMAL OF EACH QUADRANT
 				Eigen::Vector3f n_left = vec_tl_eigen.cross(vec_bl_eigen);
 				Eigen::Vector3f n_right = vec_tr_eigen.cross(vec_br_eigen);
 				Eigen::Vector3f n_top = vec_tl_eigen.cross(vec_tr_eigen);
@@ -241,7 +326,7 @@ struct PlaneSeg {
 				normal[1] = n[1];
 				normal[2] = n[2];
 
-				// Calculate the curvature
+				// COMPUTE THE CURVATURE
 				double A = n_left.norm() + n_right.norm() + n_top.norm() + n_bottom.norm();
 				double B = (n_left + n_right + n_top + n_bottom).norm();
 
@@ -249,7 +334,19 @@ struct PlaneSeg {
 
 				curvature = (std::sqrt( 8 * PI * (A-B))) / A;
 
-				mse = 0;
+
+				// COMPUTE THE MSE OF THE PLANE
+				for (int i = 0; i < window_block.rows; i++)
+				{
+					for(int j=0; j<window_block.cols; j++) {
+						cv::Vec3f point = window_block.at<cv::Vec3f>(i,j);
+						Eigen::Vector3f p {point(0),point(1),point(2)};
+						mse += std::pow(p.dot(n) - n.dot(centroid_eigen), 2);
+					}
+				}
+
+
+				mse = mse / (window_block.rows * window_block.cols);
 
 				#ifdef TIMER
 				auto end = std::chrono::high_resolution_clock::now();
@@ -258,6 +355,7 @@ struct PlaneSeg {
 				#endif
 
 			}
+
 			else {
 				std::cout << "El tamaño de la ventana no es par." << std::endl;
 				std::cout << "Ancho: " << window_block.cols << " Alto: " << window_block.rows << std::endl;
@@ -268,7 +366,13 @@ struct PlaneSeg {
 
 	}; 
 
-	NeighborNormal nei_normal;
+	NeighborStats stats;
+
+#else
+	Stats stats;
+#endif
+
+
 	int rid;					//root block id
 	double mse;					//mean square error
 	double center[3]; 			//q: plane center (center of mass)
@@ -346,11 +450,15 @@ struct PlaneSeg {
 		//assert(0<=seed_row && seed_row<height && 0<=seed_col && seed_col<width && winW>0 && winH>0);
 		this->rid = root_block_id;
 
+		// INIT STATS
 		bool windowValid=true;
 		int nanCnt=0;
 		int nanCntTh= std::floor(winHeight*winWidth*(1-params.nanTh));
+
+		#ifdef USE_NEIGHBOR_STATS
 		cv::Mat window_block(winHeight, winWidth, CV_32FC3);
 		window_block.setTo(cv::Vec3f(0,0,0));
+		#endif
 
 		// VALIDA CADA VENTANA A PARTIR DE SUS PIXELES/PUNTOS (windowValid) (Con haber 1 pixel con depth discontinuity, se rechaza la ventana)
 		for(int i=seed_row, icnt=0; icnt<winHeight && i<imgHeight; ++i, ++icnt) {
@@ -397,7 +505,10 @@ struct PlaneSeg {
 				
 				// Point is valid
 				this->stats.push(x,y,z);
+
+				#ifdef USE_NEIGHBOR_STATS
 				window_block.at<cv::Vec3f>(icnt,jcnt)=cv::Vec3f(x,y,z);
+				#endif
 			}
 
 			if(!windowValid) 
@@ -408,9 +519,10 @@ struct PlaneSeg {
 		if(windowValid) {//if nan or depth-discontinuity shows, this obj will be rejected
 			this->nouse=false;
 			this->N=this->stats.N;
-#ifdef DEBUG_INIT
+			
+			#ifdef DEBUG_INIT
 			this->type=TYPE_NORMAL;
-#endif
+			#endif
 		} 
 		
 		// VENTANA NO VALIDA
@@ -420,7 +532,7 @@ struct PlaneSeg {
 			this->nouse=true;
 		}
 
-		// nO SUFICIENTE SPUTNOS PARA CALCULAR EL PLANO
+		// NO SUFICIENTE SPUTNOS PARA CALCULAR EL PLANO
 		if(this->N < 4) {
 			this->mse = std::numeric_limits<double>::quiet_NaN();
 			this->curvature = std::numeric_limits<double>::quiet_NaN();
@@ -428,9 +540,11 @@ struct PlaneSeg {
 		
 		// SUFICIENTES PUNTOS PARA CALCULAR EL PLANO
 		else {
-			std::cout << "## Warn ##: Se estan calculando las normales de dos formas." << std::endl;
-			this->nei_normal.compute(window_block, this->center, this->normal, this->mse, this->curvature);
-			// this->stats.compute(this->center, this->normal, this->mse, this->curvature);
+			#ifdef USE_NEIGHBOR_STATS
+			this->stats.compute(window_block, this->center, this->normal, this->mse, this->curvature);
+			#else
+			this->stats.compute(this->center, this->normal, this->mse, this->curvature);
+			#endif
 
 #ifdef DEBUG_CALC
 			this->mseseq.push_back(cv::Vec2d(this->N,this->mse));

@@ -64,14 +64,16 @@ namespace ahc
 	 *     return the #pixels for each column of the point cloud
 	 *  3. bool get(const int i, const int j, double &x, double &y, double &z) const
 	 *     access the xyz coordinate of the point at i-th-row j-th-column, return true if success and false otherwise (due to NaN depth or any other reasons)
-	 */
-	struct NullImage3D
-	{
-		int width() { return 0; }
-		int height() { return 0; }
-		// get point at row i, column j
-		bool get(const int i, const int j, double &x, double &y, double &z) const { return false; }
-	};
+	 
+	 struct NullImage3D
+		{
+			int width() { return 0; }
+			int height() { return 0; }
+			// get point at row i, column j
+			bool get(const int i, const int j, double &x, double &y, double &z) const { return false; }
+		}; 
+		
+	*/
 
 	// pcl::PointCloud interface for our ahc::PlaneFitter
 	template <class PointT>
@@ -134,10 +136,8 @@ namespace ahc
 				return b->mse < a->mse;
 			}
 		};
-		typedef std::priority_queue<PlaneSeg::shared_ptr,
-									std::vector<PlaneSeg::shared_ptr>,
-									PlaneSegMinMSECmp>
-			PlaneSegMinMSEQueue;
+		
+		typedef std::priority_queue<PlaneSeg::shared_ptr, std::vector<PlaneSeg::shared_ptr>,PlaneSegMinMSECmp> PlaneSegMinMSEQueue;
 
 		/************************************************************************/
 		/* Public Class Members                                                 */
@@ -394,7 +394,7 @@ namespace ahc
 			assert(nFinalPlanes == (int)this->extractedPlanes.size());
 
 			// scan membershipImg
-			if (nFinalPlanes > colors.size())
+			if (static_cast<size_t>(nFinalPlanes) > colors.size())
 			{
 				std::vector<cv::Vec3b> tmpColors = pseudocolor(nFinalPlanes - (int)colors.size());
 				colors.insert(colors.end(), tmpColors.begin(), tmpColors.end());
@@ -818,7 +818,7 @@ namespace ahc
 			}
 			std::vector<int> &blkid2plid = *pBlkid2plid;
 
-			if (cnt > colors.size())
+			if (static_cast<size_t>(cnt) > colors.size())
 			{
 				std::vector<cv::Vec3b> tmpColors = pseudocolor(cnt - (int)colors.size());
 				colors.insert(colors.end(), tmpColors.begin(), tmpColors.end());
@@ -907,32 +907,38 @@ namespace ahc
 		 *
 		 *  \details this function implements Algorithm 2 in our paper
 		 */
-		void initGraph(PlaneSegMinMSEQueue &minQ)
+		void initGraph(PlaneSegMinMSEQueue &minQ) 
 		{
-			const int Nh = this->height / this->windowHeight;
-			const int Nw = this->width / this->windowWidth;
-
-			// 1. init nodes
-			std::vector<PlaneSeg::Ptr> G(Nh * Nw, static_cast<PlaneSeg::Ptr>(0));
-			// this->blkStats.resize(Nh*Nw);
 
 #ifdef DEBUG_INIT
 			dInit.create(this->height, this->width, CV_8UC3);
 			dInit.setTo(cv::Vec3b(0, 0, 0));
 #endif
+
+			// 1. ##  INIT NODOS
+			const int Nh = this->height / this->windowHeight;
+			const int Nw = this->width / this->windowWidth;
+
+			std::vector<PlaneSeg::Ptr> nodes(Nh * Nw, static_cast<PlaneSeg::Ptr>(0));
+			// this->blkStats.resize(Nh*Nw);
+
+			// NUMERO TOTAL DE NODOS
 			for (int i = 0; i < Nh; ++i)
 			{
 				for (int j = 0; j < Nw; ++j)
 				{
+					// CREA UN NODO/PLANO
 					PlaneSeg::shared_ptr p(new PlaneSeg(
 						*this->points, (i * Nw + j),
 						i * this->windowHeight, j * this->windowWidth,
 						this->width, this->height,
 						this->windowWidth, this->windowHeight,
 						this->params));
+
+					// PLANO VALIDO
 					if (p->mse < params.T_mse(ParamSet::P_INIT, p->center[2]) && !p->nouse)
 					{
-						G[i * Nw + j] = p.get();
+						nodes[i * Nw + j] = p.get();
 						minQ.push(p);
 						// this->blkStats[i*Nw+j]=p->stats;
 #ifdef DEBUG_INIT
@@ -948,9 +954,11 @@ namespace ahc
 						cv::circle(dInit, cv::Point(cx, cy), 1, blackColor, 2);
 #endif
 					}
+					
+					// PLANO NO VALIDO
 					else
 					{
-						G[i * Nw + j] = 0;
+						nodes[i * Nw + j] = 0;
 #ifdef DEBUG_INIT
 						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
 						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
@@ -996,33 +1004,47 @@ namespace ahc
 			this->numNodes.clear();
 #endif
 
-			// 2. init edges
+			// 2. ## INIT EDGES
+
 			// first pass, connect neighbors from row direction
 			for (int i = 0; i < Nh; ++i)
 			{
 				for (int j = 1; j < Nw; j += 2)
 				{
 					const int cidx = i * Nw + j;
-					if (G[cidx - 1] == 0)
+					
+					// NODO ANTERIOR NO ES VALIDO
+					if (nodes[cidx - 1] == 0)
 					{
 						--j;
 						continue;
 					}
-					if (G[cidx] == 0)
+
+					// NODO ACTUAL NO ES VALIDO
+					if (nodes[cidx] == 0)
 						continue;
-					if (j < Nw - 1 && G[cidx + 1] == 0)
+						
+					// NODO SIGUIENTE NO ES VALIDO
+					if (j < Nw - 1 && nodes[cidx + 1] == 0)
 					{
 						++j;
 						continue;
 					}
 
-					const double similarityTh = params.T_ang(ParamSet::P_INIT, G[cidx]->center[2]);
-					if ((j < Nw - 1 && G[cidx - 1]->normalSimilarity(*G[cidx + 1]) >= similarityTh) ||
-						(j == Nw - 1 && G[cidx]->normalSimilarity(*G[cidx - 1]) >= similarityTh))
+					const double similarityTh = params.T_ang(ParamSet::P_INIT, nodes[cidx]->center[2]);
+					
+					//NO ES BORDE && SIMILITUD ENTRE NODOS ANTERIOR Y POSTERIOR ES MAYOR A TH
+					// ES BORDE && SIMILITUD CON NODO ANTERIOR ES MAYOR A TH
+					if ((j < Nw - 1 && nodes[cidx - 1]->normalSimilarity(*nodes[cidx + 1]) >= similarityTh) ||
+						(j == Nw - 1 && nodes[cidx]->normalSimilarity(*nodes[cidx - 1]) >= similarityTh))
 					{
-						G[cidx]->connect(G[cidx - 1]);
+
+						// CONECTA CON EL ANTERIOR
+						nodes[cidx]->connect(nodes[cidx - 1]);
+
+						// SI NO ES BORDE, CONECTA CON EL SIGUIENTE
 						if (j < Nw - 1)
-							G[cidx]->connect(G[cidx + 1]);
+							nodes[cidx]->connect(nodes[cidx + 1]);
 #ifdef DEBUG_INIT
 						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
 						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
@@ -1037,38 +1059,40 @@ namespace ahc
 						nEdge += (j < Nw - 1) ? 4 : 2;
 #endif
 					}
+					// NODO NO SE PUEDE CONECTAR, SE RETROCEDE UN NODO
 					else
 					{ // otherwise current block is in edge region
 						--j;
 					}
 				}
 			}
+			
 			// second pass, connect neighbors from column direction
 			for (int j = 0; j < Nw; ++j)
 			{
 				for (int i = 1; i < Nh; i += 2)
 				{
 					const int cidx = i * Nw + j;
-					if (G[cidx - Nw] == 0)
+					if (nodes[cidx - Nw] == 0)
 					{
 						--i;
 						continue;
 					}
-					if (G[cidx] == 0)
+					if (nodes[cidx] == 0)
 						continue;
-					if (i < Nh - 1 && G[cidx + Nw] == 0)
+					if (i < Nh - 1 && nodes[cidx + Nw] == 0)
 					{
 						++i;
 						continue;
 					}
 
-					const double similarityTh = params.T_ang(ParamSet::P_INIT, G[cidx]->center[2]);
-					if ((i < Nh - 1 && G[cidx - Nw]->normalSimilarity(*G[cidx + Nw]) >= similarityTh) ||
-						(i == Nh - 1 && G[cidx]->normalSimilarity(*G[cidx - Nw]) >= similarityTh))
+					const double similarityTh = params.T_ang(ParamSet::P_INIT, nodes[cidx]->center[2]);
+					if ((i < Nh - 1 && nodes[cidx - Nw]->normalSimilarity(*nodes[cidx + Nw]) >= similarityTh) ||
+						(i == Nh - 1 && nodes[cidx]->normalSimilarity(*nodes[cidx - Nw]) >= similarityTh))
 					{
-						G[cidx]->connect(G[cidx - Nw]);
+						nodes[cidx]->connect(nodes[cidx - Nw]);
 						if (i < Nh - 1)
-							G[cidx]->connect(G[cidx + Nw]);
+							nodes[cidx]->connect(nodes[cidx + Nw]);
 #ifdef DEBUG_INIT
 						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
 						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
@@ -1089,6 +1113,8 @@ namespace ahc
 					}
 				}
 			}
+
+
 #ifdef DEBUG_INIT
 			static int cnt = 0;
 			cv::namedWindow("debug initGraph");
@@ -1107,6 +1133,8 @@ namespace ahc
 #endif
 		}
 
+
+
 		/**
 		 *  \brief main clustering step
 		 *
@@ -1116,7 +1144,7 @@ namespace ahc
 		 *
 		 *  \details this function implements the Algorithm 3 in our paper
 		 */
-		int ahCluster(PlaneSegMinMSEQueue &minQ, bool debug = true)
+		int ahCluster(PlaneSegMinMSEQueue &minQ, [[maybe_unused]]bool debug = true)
 		{
 #if !defined(DEBUG_INIT) && defined(DEBUG_CLUSTER)
 			dInit.create(this->height, this->width, CV_8UC3);
@@ -1138,25 +1166,27 @@ namespace ahc
 			}
 #endif
 			int step = 0;
+
+			// MIENTRAS LA COLA NO ESTE VACIA
 			while (!minQ.empty() && step <= maxStep)
 			{
-				PlaneSeg::shared_ptr p = minQ.top();
-				minQ.pop();
-				if (p->nouse)
-				{
-					assert(p->nbs.size() <= 0);
+				// GET PLANE WITH LOWER MSE
+				PlaneSeg::shared_ptr curr_plane = minQ.top();
+				minQ.pop(); // remove the top element
+				if (curr_plane->nouse) { // if this plane is already merged
+					assert(curr_plane->nbs.size() <= 0);
 					continue;
 				}
 #ifdef DEBUG_CALC
-				this->maxIndvidualNodeDegree = std::max(this->maxIndvidualNodeDegree, (int)p->nbs.size());
-				this->mseNodeDegree.push_back((int)p->nbs.size());
+				this->maxIndvidualNodeDegree = std::max(this->maxIndvidualNodeDegree, (int)curr_plane->nbs.size());
+				this->mseNodeDegree.push_back((int)curr_plane->nbs.size());
 #endif
 #ifdef DEBUG_CLUSTER
 				int cx, cy;
 				{
 					dSeg.copyTo(dGraph);
-					const int blkid = p->rid;
-					this->floodFillColor(blkid, dGraph, p->getColor(false));
+					const int blkid = curr_plane->rid;
+					this->floodFillColor(blkid, dGraph, curr_plane->getColor(false));
 					const int i = blkid / Nw;
 					const int j = blkid - i * Nw;
 					cx = j * windowWidth + 0.5 * (windowWidth - 1);
@@ -1167,9 +1197,12 @@ namespace ahc
 #endif
 				PlaneSeg::shared_ptr cand_merge;
 				PlaneSeg::Ptr cand_nb(0);
-				PlaneSeg::NbSet::iterator itr = p->nbs.begin();
-				for (; itr != p->nbs.end(); itr++)
-				{ // test merge with all nbs, pick the one with min mse
+				PlaneSeg::NbSet::iterator itr = curr_plane->nbs.begin();
+
+				// ITERATE OVER PLANE NEIGHBORS
+				for (; itr != curr_plane->nbs.end(); itr++) {
+
+					// TEMPORAL NEIGHBOR
 					PlaneSeg::Ptr nb = (*itr);
 #ifdef DEBUG_CLUSTER
 					{
@@ -1178,10 +1211,14 @@ namespace ahc
 					}
 #endif
 					// TODO: should we use dynamic similarityTh here?
-					// const double similarityTh=ahc::depthDependNormalDeviationTh(p->center[2],500,4000,M_PI*15/180.0,M_PI/2);
-					if (p->normalSimilarity(*nb) < params.T_ang(ParamSet::P_MERGING, p->center[2]))
+					// const double similarityTh=ahc::depthDependNormalDeviationTh(curr_plane->center[2],500,4000,M_PI*15/180.0,M_PI/2);
+					if (curr_plane->normalSimilarity(*nb) < params.T_ang(ParamSet::P_MERGING, curr_plane->center[2]))
 						continue;
-					PlaneSeg::shared_ptr merge(new PlaneSeg(*p, *nb));
+
+					// TEMPORAL NEIGHBOR VALID TO MERGE
+					PlaneSeg::shared_ptr merge(new PlaneSeg(*curr_plane, *nb));
+
+					// MERGE IF MSE IS LOWER OR N IS HIGHER
 					if (cand_merge == 0 || cand_merge->mse > merge->mse ||
 						(cand_merge->mse == merge->mse && cand_merge->N < merge->N))
 					{
@@ -1190,8 +1227,8 @@ namespace ahc
 					}
 				} // for nbs
 #ifdef DEBUG_CLUSTER
-				itr = p->nbs.begin();
-				for (; debug && itr != p->nbs.end(); itr++)
+				itr = curr_plane->nbs.begin();
+				for (; debug && itr != curr_plane->nbs.end(); itr++)
 				{
 					PlaneSeg::Ptr nb = (*itr);
 					const int n_blkid = nb->rid;
@@ -1203,10 +1240,10 @@ namespace ahc
 					cv::circle(dGraph, cv::Point(mx, my), 3, blackColor, 1);
 					cv::line(dGraph, cv::Point(cx, cy), cv::Point(mx, my), blackColor, 1);
 				} // for nbs
-#endif
+#endif	
+				// CAN MERGE
 				// TODO: maybe a better merge condition? such as adaptive threshold on MSE like Falzenszwalb's method
-				if (cand_merge != 0 && cand_merge->mse < params.T_mse(
-															 ParamSet::P_MERGING, cand_merge->center[2]))
+				if (cand_merge != 0 && cand_merge->mse < params.T_mse(ParamSet::P_MERGING, cand_merge->center[2]))
 				{ // merge and add back to minQ
 #ifdef DEBUG_CLUSTER
 					{
@@ -1225,11 +1262,11 @@ namespace ahc
 					}
 #endif
 #ifdef DEBUG_CALC
-					const int nEdge_p = (int)p->nbs.size() * 2;
+					const int nEdge_p = (int)curr_plane->nbs.size() * 2;
 					const int nEdge_nb = (int)cand_nb->nbs.size() * 2;
 #endif
 					minQ.push(cand_merge);
-					cand_merge->mergeNbsFrom(*p, *cand_nb, *this->ds);
+					cand_merge->mergeNbsFrom(*curr_plane, *cand_nb, *this->ds);
 #ifdef DEBUG_CALC
 					if (debug)
 					{ // don't do this when merging one last time
@@ -1248,13 +1285,17 @@ namespace ahc
 					}
 #endif
 				}
+
+				// CAN NOT MERGE
 				else
 				{ // do not merge, but extract p
-					if (p->N >= this->minSupport)
+
+					// PLANE ENOUGH POINTS ADD PLANE TO EXTRACTED PLANES
+					if (curr_plane->N >= this->minSupport)
 					{
-						this->extractedPlanes.push_back(p);
+						this->extractedPlanes.push_back(curr_plane);
 #ifdef DEBUG_CLUSTER
-						const int blkid = p->rid;
+						const int blkid = curr_plane->rid;
 						const int i = blkid / Nw;
 						const int j = blkid - i * Nw;
 						const int ex = j * windowWidth + 0.5 * (windowWidth - 1);
@@ -1270,7 +1311,7 @@ namespace ahc
 							cv::imshow("debug Graph", dGraph);
 						}
 						{
-							floodFillColor(p->rid, dSeg, p->getColor(false));
+							floodFillColor(curr_plane->rid, dSeg, curr_plane->getColor(false));
 							cv::line(dSeg, cv::Point(ex - len, ey), cv::Point(ex + len, ey), blackColor, 2);
 							cv::line(dSeg, cv::Point(ex, ey - len), cv::Point(ex, ey + len), blackColor, 2);
 							std::stringstream ss;
@@ -1285,14 +1326,14 @@ namespace ahc
 					else
 					{
 						{
-							floodFillColor(p->rid, dGraph, cv::Vec3b(0, 0, 0));
+							floodFillColor(curr_plane->rid, dGraph, cv::Vec3b(0, 0, 0));
 							std::stringstream ss;
 							ss << saveDir << "/output/dGraph_" << std::setw(5) << std::setfill('0') << ++dSegCnt << ".png";
 							cv::imwrite(ss.str(), dGraph);
 							cv::imshow("debug Graph", dGraph);
 						}
 						{
-							floodFillColor(p->rid, dSeg, cv::Vec3b(0, 0, 0));
+							floodFillColor(curr_plane->rid, dSeg, cv::Vec3b(0, 0, 0));
 							std::stringstream ss;
 							ss << saveDir << "/output/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
 							cv::imwrite(ss.str(), dSeg);
@@ -1305,13 +1346,15 @@ namespace ahc
 					if (debug)
 					{
 						this->numNodes.push_back(this->numNodes.back() - 1);
-						this->numEdges.push_back(this->numEdges.back() - (int)p->nbs.size() * 2);
+						this->numEdges.push_back(this->numEdges.back() - (int)curr_plane->nbs.size() * 2);
 					}
 #endif
-					p->disconnectAllNbs();
+					curr_plane->disconnectAllNbs();
 				}
 				++step;
 			} // end while minQ
+
+			// ADD REMAINING PLANES TO EXTRACTED PLANES
 			while (!minQ.empty())
 			{ // just check if any remaining PlaneSeg if maxstep reached
 				const PlaneSeg::shared_ptr p = minQ.top();
@@ -1331,9 +1374,7 @@ namespace ahc
 			}
 #endif
 			static PlaneSegSizeCmp sizecmp;
-			std::sort(this->extractedPlanes.begin(),
-					  this->extractedPlanes.end(),
-					  sizecmp);
+			std::sort(this->extractedPlanes.begin(), this->extractedPlanes.end(), sizecmp);
 			return step;
 		}
 	}; // end of PlaneFitter

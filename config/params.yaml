@@ -11,8 +11,10 @@ debug: true
 unitScaleFactor: 1000
 
 showWindow: false
+saveSegImage: false
+saveSegCloud: false
 
-#Node validity
+# Window Node validity
 nanTh: 0.15
 
 #T_mse
@@ -36,8 +38,9 @@ similarityDegreeTh_refine: 30
 
 #T_dz
 # corresponds to the 2*\alpha in the paper
+# Noise level of depth data; unit: mm
 depthAlpha: 0.02
-# unit: mm
+# Fixed Minimum depth threshold; unit: mm
 depthChangeTol: 0.01
 
 #use 0 for Kinect and 1 for TLS data where nan points are more randomly distributed
@@ -45,6 +48,7 @@ initType: 1
 
 # min number of supporting point
 # note: adjust this if image size < 640x480
+# minimo de puntos que ha de tener un plano para ser considerado valido
 minSupport: 3000
 
 # note: adjust this if image size < 640x480

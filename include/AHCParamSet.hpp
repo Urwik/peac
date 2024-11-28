@@ -144,7 +144,7 @@ struct ParamSet {
 	 *  (TODO: maybe change this to 3D-point distance threshold)
 	 */
 	inline double T_dz(const double z) const {
-		return depthAlpha * fabs(z) + depthChangeTol;
+		return depthAlpha * std::fabs(z) + depthChangeTol;
 	}
 };//ParamSet
 
