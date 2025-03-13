@@ -30,7 +30,8 @@
 #include <vector>				//mseseq
 #include <limits>				//quiet_NaN
 #include <Eigen/Core>
-#include <opencv2/core/eigen.hpp>
+#include <opencv4/opencv2/core/eigen.hpp>
+#include <algorithm>
 
 #include "AHCTypes.hpp"		//shared_ptr
 #include "eig33sym.hpp"		//PlaneSeg::Stats::compute
@@ -66,20 +67,26 @@ struct PlaneSeg {
 			sxx, syy, szz, //sum of xx/yy/zz
 			sxy, syz, sxz; //sum of xy/yz/xz
 		int N; //#points in this PlaneSeg
+		// double ev[3][3]; //eigen vectors
 
 		Stats() : sx(0), sy(0), sz(0),
 			sxx(0), syy(0), szz(0),
-			sxy(0), syz(0), sxz(0), N(0) {}
+			sxy(0), syz(0), sxz(0), N(0) {
+				// std::fill(&ev[0][0], &ev[0][0] + 3 * 3, 0.0);
+			}
 
 		//merge from two other Stats
 		Stats(const Stats& a, const Stats& b) :
 		sx(a.sx+b.sx), sy(a.sy+b.sy), sz(a.sz+b.sz),
 			sxx(a.sxx+b.sxx), syy(a.syy+b.syy), szz(a.szz+b.szz),
-			sxy(a.sxy+b.sxy), syz(a.syz+b.syz), sxz(a.sxz+b.sxz), N(a.N+b.N) {}
+			sxy(a.sxy+b.sxy), syz(a.syz+b.syz), sxz(a.sxz+b.sxz), N(a.N+b.N) {
+			// std::copy(&a.ev[0][0], &a.ev[0][0] + 3 * 3, &ev[0][0]);
+		}
 
 		inline void clear() {
 			sx=sy=sz=sxx=syy=szz=sxy=syz=sxz=0;
 			N=0;
+			// std::fill(&ev[0][0], &ev[0][0] + 3 * 3, 0.0);
 		}
 
 		//push a new point (x,y,z) into this Stats
@@ -127,7 +134,7 @@ struct PlaneSeg {
 		*  \param [out] curvature defined as in pcl
 		*/
 		inline void compute(double center[3], double normal[3],
-			double& mse, double& curvature) const
+			double& mse, double& curvature, double eigenvectors[3][3]) const
 		{
 			#ifdef STATS_TIMER
 			auto start = std::chrono::high_resolution_clock::now();
@@ -145,7 +152,7 @@ struct PlaneSeg {
 				{           0,syy-sy*sy*sc,syz-sy*sz*sc},
 				{           0,           0,szz-sz*sz*sc}
 			};
-			K[1][0]=K[0][1]; K[2][0]=K[0][2]; K[2][1]=K[1][2];
+			K[1][0]=K[0][1]; K[2][0]=K[0][2]; K[2][1]=K[1][2]; //symmetrice matrix
 			double sv[3]={0,0,0};
 			double V[3][3]={0};
 			LA::eig33sym(K, sv, V); //!!! first eval is the least one
@@ -159,6 +166,23 @@ struct PlaneSeg {
 				normal[1]=-V[1][0];
 				normal[2]=-V[2][0];
 			}
+
+			double zvec[3] = {V[0][0], V[0][1], V[0][2]};
+			double yvec[3] = {V[1][0], V[1][1], V[1][2]};
+			double xvec[3] = {V[2][0], V[2][1], V[2][2]};
+			
+			eigenvectors[0][0] = xvec[0];
+			eigenvectors[0][1] = xvec[1];
+			eigenvectors[0][2] = xvec[2];
+
+			eigenvectors[1][0] = yvec[0];
+			eigenvectors[1][1] = yvec[1];
+			eigenvectors[1][2] = yvec[2];
+
+			eigenvectors[2][0] = zvec[0];
+			eigenvectors[2][1] = zvec[1];
+			eigenvectors[2][2] = zvec[2];
+
 			mse = sv[0]*sc;
 			curvature=sv[0]/(sv[0]+sv[1]+sv[2]);
 
@@ -374,6 +398,7 @@ struct PlaneSeg {
 	int N;						//#member points, same as stats.N
 	double curvature;
 	bool nouse;					//this PlaneSeg will be marked as nouse after merged with others to produce a new PlaneSeg node in the graph
+	double eigenvectors[3][3];
 
 #ifdef DEBUG_INIT
 	enum Type {
@@ -400,7 +425,7 @@ struct PlaneSeg {
 	NbSet nbs;			//neighbors, i.e. adjacency list for a graph structure
 
 	inline void update() {
-		this->stats.compute(this->center, this->normal, this->mse, this->curvature);
+		this->stats.compute(this->center, this->normal, this->mse, this->curvature, this->eigenvectors);
 	}
 
 	PlaneSeg(const int init_block_id, const double mse, const double center[3], const double normal[3], const double curvature, const Stats& stats)
@@ -536,7 +561,7 @@ struct PlaneSeg {
 			#ifdef USE_NEIGHBOR_STATS
 			this->stats.compute(window_block, this->center, this->normal, this->mse, this->curvature);
 			#else
-			this->stats.compute(this->center, this->normal, this->mse, this->curvature);
+			this->stats.compute(this->center, this->normal, this->mse, this->curvature, this->eigenvectors);
 			#endif
 
 #ifdef DEBUG_CALC
@@ -576,7 +601,7 @@ struct PlaneSeg {
 		//in mergeNbsFrom(pa,pb) function, since
 		//this object might not be accepted into the graph structure
 
-		this->stats.compute(this->center, this->normal, this->mse, this->curvature);
+		this->stats.compute(this->center, this->normal, this->mse, this->curvature, this->eigenvectors);
 
 #if defined(DEBUG_CLUSTER)
 		const uchar clx=uchar((this->normal[0]+1.0)*0.5*255.0);
