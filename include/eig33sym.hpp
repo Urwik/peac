@@ -68,8 +68,7 @@ namespace LA {
 		V[2][0]=tmpV[2][order[0]]; V[2][1]=tmpV[2][order[1]]; V[2][2]=tmpV[2][order[2]];
 #else
 		//below we did not specify row major since it does not matter, K==K'
-		Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(
-			Eigen::Map<Eigen::Matrix3d>(K[0], 3, 3) );
+		Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(Eigen::Map<Eigen::Matrix3d>(K[0], 3, 3) );
 		Eigen::Map<Eigen::Vector3d>(s,3,1)=es.eigenvalues();
 		//below we need to specify row major since V!=V'
 		Eigen::Map<Eigen::Matrix<double,3,3,Eigen::RowMajor>>(V[0],3,3)=es.eigenvectors();
