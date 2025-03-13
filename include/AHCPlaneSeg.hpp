@@ -37,11 +37,6 @@
 #include "AHCParamSet.hpp"		//depthDisContinuous
 #include "DisjointSet.hpp"	//PlaneSeg::mergeNbsFrom
 
-#include "timer.hpp"
-
-#ifdef TIMER
-Timer timer;
-#endif
 
 namespace ahc {
 
@@ -462,7 +457,6 @@ struct PlaneSeg {
 		// VALIDA CADA VENTANA A PARTIR DE SUS PIXELES/PUNTOS (windowValid) (Con haber 1 pixel con depth discontinuity, se rechaza la ventana)
 		for(int i=seed_row, icnt=0; icnt<winHeight && i<imgHeight; ++i, ++icnt) {
 			for(int j=seed_col, jcnt=0; jcnt<winWidth && j<imgWidth; ++j, ++jcnt) {
-				
 				
 				// Filter NaN points
 				double x=0,y=0,z=10000;
