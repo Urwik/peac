@@ -172,21 +172,17 @@ struct PlaneSeg {
 				normal[2]=-V[2][0];
 			}
 
-			double zvec[3] = {V[0][0], V[0][1], V[0][2]};
-			double yvec[3] = {V[1][0], V[1][1], V[1][2]};
-			double xvec[3] = {V[2][0], V[2][1], V[2][2]};
-			
-			eigenvectors[0][0] = xvec[0];
-			eigenvectors[0][1] = xvec[1];
-			eigenvectors[0][2] = xvec[2];
+			eigenvectors[0][0] = V[0][0];
+			eigenvectors[1][0] = V[1][0];
+			eigenvectors[2][0] = V[2][0];
 
-			eigenvectors[1][0] = yvec[0];
-			eigenvectors[1][1] = yvec[1];
-			eigenvectors[1][2] = yvec[2];
+			eigenvectors[0][1] = V[0][1];
+			eigenvectors[1][1] = V[1][1];
+			eigenvectors[2][1] = V[2][1];
 
-			eigenvectors[2][0] = zvec[0];
-			eigenvectors[2][1] = zvec[1];
-			eigenvectors[2][2] = zvec[2];
+			eigenvectors[0][2] = V[0][2];
+			eigenvectors[1][2] = V[1][2];
+			eigenvectors[2][2] = V[2][2];
 
 			mse = sv[0]*sc;
 			curvature=sv[0]/(sv[0]+sv[1]+sv[2]);
