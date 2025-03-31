@@ -687,14 +687,14 @@ namespace ahc
 			} // for blkik
 
 			////update plane equation
-			// for(int i=0; i<(int)this->extractedPlanes.size(); ++i) {
-			//	if(isValidExtractedPlane[i]) {
-			//		if(this->extractedPlanes[i]->stats.N>=this->minSupport)
-			//			this->extractedPlanes[i]->update();
-			//	} else {
-			//		this->extractedPlanes[i]->nouse=true;
-			//	}
-			// }
+			for(int i=0; i<(int)this->extractedPlanes.size(); ++i) {
+				if(isValidExtractedPlane[i]) {
+					if(this->extractedPlanes[i]->stats.N>=this->minSupport)
+						this->extractedPlanes[i]->update();
+				} else {
+					this->extractedPlanes[i]->nouse=true;
+				}
+			}
 		}
 
 		// called by findMembership and/or plotSegmentImage when doRefine==false
@@ -1048,6 +1048,9 @@ namespace ahc
 						++j;
 						continue;
 					}
+					
+					// TODO: NODO SIGUIENTE SEPARADO POR UN NODO NO VALIDO
+
 
 					const double similarityTh = params.T_ang(ParamSet::P_INIT, nodes[cidx]->center[2]);
 					
