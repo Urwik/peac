@@ -633,6 +633,22 @@ struct PlaneSeg {
 	}
 
 	/**
+	 * @brief Euclidean distance between two PlaneSegs
+	 * 
+	 * @param [in] p another PlaneSeg
+	 * @return sqrt((this->center[0]-p.center[0])*(this->center[0]-p.center[0])+
+	 * (this->center[1]-p.center[1])*(this->center[1]-p.center[1])+
+	 * (this->center[2]-p.center[2])*(this->center[2]-p.center[2])) 
+	 */
+	inline double euclideanDistance(const PlaneSeg& p) const {
+		return std::sqrt((this->center[0]-p.center[0])*(this->center[0]-p.center[0])+
+			(this->center[1]-p.center[1])*(this->center[1]-p.center[1])+
+			(this->center[2]-p.center[2])*(this->center[2]-p.center[2]));
+	}
+
+
+
+	/**
 	*  \brief signed distance between this plane and the point pt[3]
 	*/
 	inline double signedDist(const double pt[3]) const {

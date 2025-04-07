@@ -58,6 +58,7 @@ struct ParamSet {
 	double depthChangeTol;		//unit: u mm
 
 	float nanTh;
+	float ecDistTh;	//unit: u mm, max distance between two nodes to be linked with and edge
 
 	InitType initType;
 

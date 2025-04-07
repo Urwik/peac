@@ -41,6 +41,7 @@
 #include <pcl/point_types.h>
 
 // #define DEBUG_CLUSTER
+#define FILTER_EDGES_BY_LENGTH
 // #define DEBUG_CALC
 // #define DEBUG_INIT
 // #define EVAL_SPEED
@@ -260,6 +261,13 @@ namespace ahc
 			timer.toctic("init time");
 #endif
 			int step = this->ahCluster(minQ);
+#ifdef DEBUG_AHCLUSTER
+
+			std::cout << "step=" << step << ", #extractedPlanes="
+					  << this->extractedPlanes.size() << std::endl;
+#endif
+
+
 #ifdef EVAL_SPEED
 			timer.toctic("cluster time");
 #endif
@@ -1060,12 +1068,21 @@ namespace ahc
 						(j == Nw - 1 && nodes[cidx]->normalSimilarity(*nodes[cidx - 1]) >= similarityTh))
 					{
 
+#ifdef FILTER_EDGES_BY_LENGTH
+						if (nodes[cidx]->euclideanDistance(*nodes[cidx-1]) > static_cast<double>(this->params.ecDistTh))
+							continue;
+#endif
 						// CONECTA CON EL ANTERIOR
 						nodes[cidx]->connect(nodes[cidx - 1]);
 
-						// SI NO ES BORDE, CONECTA CON EL SIGUIENTE
-						if (j < Nw - 1)
+						// SI NO ES BORDE, CONECTA TAMBIEN CON EL SIGUIENTE
+						if (j < Nw - 1) {
+#ifdef FILTER_EDGES_BY_LENGTH
+							if (nodes[cidx]->euclideanDistance(*nodes[cidx + 1]) > static_cast<double>(this->params.ecDistTh))
+								continue;
+#endif
 							nodes[cidx]->connect(nodes[cidx + 1]);
+						}
 #ifdef DEBUG_INIT
 						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
 						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
@@ -1111,9 +1128,18 @@ namespace ahc
 					if ((i < Nh - 1 && nodes[cidx - Nw]->normalSimilarity(*nodes[cidx + Nw]) >= similarityTh) ||
 						(i == Nh - 1 && nodes[cidx]->normalSimilarity(*nodes[cidx - Nw]) >= similarityTh))
 					{
+#ifdef FILTER_EDGES_BY_LENGTH
+						if (nodes[cidx]->euclideanDistance(*nodes[cidx - Nw]) > static_cast<double>(this->params.ecDistTh))
+							continue;
+#endif
 						nodes[cidx]->connect(nodes[cidx - Nw]);
-						if (i < Nh - 1)
+						if (i < Nh - 1) {
+#ifdef FILTER_EDGES_BY_LENGTH
+							if (nodes[cidx]->euclideanDistance(*nodes[cidx + Nw]) > static_cast<double>(this->params.ecDistTh))
+								continue;
+#endif
 							nodes[cidx]->connect(nodes[cidx + Nw]);
+						}
 #ifdef DEBUG_INIT
 						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
 						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
