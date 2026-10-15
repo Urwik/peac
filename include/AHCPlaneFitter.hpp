@@ -40,11 +40,13 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
+#define DEBUG
+#define DEBUG_INIT
 // #define DEBUG_CLUSTER
-#define FILTER_EDGES_BY_LENGTH
+// #define DEBUG_AHCLUSTER
 // #define DEBUG_CALC
-// #define DEBUG_INIT
 // #define EVAL_SPEED
+// #define FILTER_EDGES_BY_LENGTH
 
 #include "AHCTypes.hpp"
 #include "AHCPlaneSeg.hpp"
@@ -173,6 +175,7 @@ namespace ahc
 		// std::vector<PlaneSeg::Stats> blkStats;
 #if defined(DEBUG_INIT) || defined(DEBUG_CLUSTER)
 		std::string saveDir;
+		float dbgScale;
 #endif
 #ifdef DEBUG_CALC
 		std::vector<int> numNodes;
@@ -302,6 +305,35 @@ namespace ahc
 #endif
 			return 1;
 		}
+
+
+
+		double runInitGraph(const Image3D *pointsIn,
+					  std::vector<std::vector<int>> *pMembership = 0,
+					  cv::Mat *pSeg = 0,
+					  const std::vector<int> *const pIdxMap = 0, bool verbose = true)
+		{
+			if (!pointsIn)
+				return 0;
+#ifdef EVAL_SPEED
+			Timer timer(1000), timer2(1000);
+			timer.tic();
+			timer2.tic();
+#endif
+			clear();
+			this->points = pointsIn;
+			this->height = points->height();
+			this->width = points->width();
+			this->ds.reset(new DisjointSet((height / windowHeight) * (width / windowWidth)));
+
+			PlaneSegMinMSEQueue minQ;
+			this->initGraph(minQ);
+
+			return 1;
+
+
+		}
+
 
 		/**
 		 *  \brief print out the current parameters
@@ -873,8 +905,8 @@ namespace ahc
 			visited[seedIdx] = true;
 			const int sy = seedIdx / Nw;
 			const int sx = seedIdx - sy * Nw;
-			seg(cv::Range(sy * windowHeight, (sy + 1) * windowHeight),
-				cv::Range(sx * windowWidth, (sx + 1) * windowWidth))
+			seg(cv::Range(dbg(sy * windowHeight), dbg((sy + 1) * windowHeight)),
+				cv::Range(dbg(sx * windowWidth), dbg((sx + 1) * windowWidth)))
 				.setTo(clr);
 
 			const int clsId = ds->Find(seedIdx);
@@ -897,8 +929,8 @@ namespace ahc
 						if (clsId == ds->Find(cIdx))
 						{ // if same plane, move
 							idxStack.push_back(cIdx);
-							seg(cv::Range(cy * windowHeight, (cy + 1) * windowHeight),
-								cv::Range(cx * windowWidth, (cx + 1) * windowWidth))
+							seg(cv::Range(dbg(cy * windowHeight), dbg((cy + 1) * windowHeight)),
+								cv::Range(dbg(cx * windowWidth), dbg((cx + 1) * windowWidth)))
 								.setTo(clr);
 						}
 					}
@@ -911,6 +943,16 @@ namespace ahc
 		cv::Mat dInit;
 		cv::Mat dSeg;
 		cv::Mat dGraph;
+
+		// magnify the debug canvas so that every AHC window has at least ~12 debug pixels
+		int dbgInitScale() const
+		{
+			const int minWin = std::max(1, std::min(windowWidth, windowHeight));
+			return std::max(1, std::min(6, 12 / minWin));
+		}
+		inline int dbg(const double v) const { return static_cast<int>(v * dbgScale); }
+		inline cv::Point dbgPt(const double x, const double y) const { return cv::Point(cvRound(x * dbgScale), cvRound(y * dbgScale)); }
+		inline int dbgCell() const { return dbgScale * std::max(1, std::min(windowWidth, windowHeight)); }
 #endif
 
 		/**
@@ -927,7 +969,8 @@ namespace ahc
 			std::cout << "Initializing the graph..." << std::endl;
 #endif
 #ifdef DEBUG_INIT
-			dInit.create(this->height, this->width, CV_8UC3);
+			dbgScale = this->dbgInitScale();
+			dInit.create(this->height * dbgScale, this->width * dbgScale, CV_8UC3);
 			dInit.setTo(cv::Vec3b(0, 0, 0));
 			int valid_nodes = 0;
 			int invalid_nodes = 0;
@@ -963,14 +1006,14 @@ namespace ahc
 						++valid_nodes;
 						// const uchar cl=uchar(p->mse*255/dynThresh);
 						// const cv::Vec3b clr(cl,cl,cl);
-						dInit(cv::Range(i * windowHeight, (i + 1) * windowHeight),
-							  cv::Range(j * windowWidth, (j + 1) * windowWidth))
+						dInit(cv::Range(dbg(i * windowHeight), dbg((i + 1) * windowHeight)),
+							  cv::Range(dbg(j * windowWidth), dbg((j + 1) * windowWidth)))
 							.setTo(p->getColor(true));
 
-						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
-						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
+						const double cx = j * windowWidth + 0.5 * (windowWidth - 1);
+						const double cy = i * windowHeight + 0.5 * (windowHeight - 1);
 						static const cv::Scalar blackColor(0, 0, 0, 1);
-						cv::circle(dInit, cv::Point(cx, cy), 1, blackColor, 2);
+						cv::circle(dInit, dbgPt(cx, cy), std::max(2, dbgCell() / 5), blackColor, cv::FILLED);
 #endif
 					}
 					
@@ -980,34 +1023,36 @@ namespace ahc
 						nodes[i * Nw + j] = 0;
 #ifdef DEBUG_INIT
 						++invalid_nodes;
-						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
-						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
+						const double cx = j * windowWidth + 0.5 * (windowWidth - 1);
+						const double cy = i * windowHeight + 0.5 * (windowHeight - 1);
+						const int dotR = std::max(2, dbgCell() / 5);   // marker sizes in debug-canvas pixels
+						const int ringR = std::max(3, dbgCell() / 4);
+						const int len = std::max(2, dbgCell() / 4);
 						static const cv::Scalar blackColor(0, 0, 0, 1);
 						static const cv::Vec3b whiteColor(255, 255, 255);
-						dInit(cv::Range(i * windowHeight, (i + 1) * windowHeight),
-							  cv::Range(j * windowWidth, (j + 1) * windowWidth))
+						dInit(cv::Range(dbg(i * windowHeight), dbg((i + 1) * windowHeight)),
+							  cv::Range(dbg(j * windowWidth), dbg((j + 1) * windowWidth)))
 							.setTo(whiteColor);
 
 						switch (p->type)
 						{
 						case PlaneSeg::TYPE_NORMAL: // draw a big dot
 						{
-							static const cv::Scalar yellow(255, 0, 0, 1);
-							cv::circle(dInit, cv::Point(cx, cy), 3, yellow, 4);
+							static const cv::Scalar red_dot(255, 0, 0, 1);
+							cv::circle(dInit, dbgPt(cx, cy), dotR, red_dot, cv::FILLED);
 							break;
 						}
 						case PlaneSeg::TYPE_MISSING_DATA: // draw an 'o'
 						{
 							static const cv::Scalar black(0, 0, 0, 1);
-							cv::circle(dInit, cv::Point(cx, cy), 3, black, 2);
+							cv::circle(dInit, dbgPt(cx, cy), ringR, black, 1);
 							break;
 						}
 						case PlaneSeg::TYPE_DEPTH_DISCONTINUE: // draw an 'x'
 						{
 							static const cv::Scalar red(255, 0, 0, 1);
-							static const int len = 4;
-							cv::line(dInit, cv::Point(cx - len, cy - len), cv::Point(cx + len, cy + len), red, 2);
-							cv::line(dInit, cv::Point(cx + len, cy - len), cv::Point(cx - len, cy + len), red, 2);
+							cv::line(dInit, dbgPt(cx - len, cy - len), dbgPt(cx + len, cy + len), red, 1);
+							cv::line(dInit, dbgPt(cx + len, cy - len), dbgPt(cx - len, cy + len), red, 1);
 							break;
 						}
 						}
@@ -1084,14 +1129,14 @@ namespace ahc
 							nodes[cidx]->connect(nodes[cidx + 1]);
 						}
 #ifdef DEBUG_INIT
-						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
-						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
-						const int rx = (j + 1) * windowWidth + 0.5 * (windowWidth - 1);
-						const int lx = (j - 1) * windowWidth + 0.5 * (windowWidth - 1);
+						const double cx = j * windowWidth + 0.5 * (windowWidth - 1);
+						const double cy = i * windowHeight + 0.5 * (windowHeight - 1);
+						const double rx = (j + 1) * windowWidth + 0.5 * (windowWidth - 1);
+						const double lx = (j - 1) * windowWidth + 0.5 * (windowWidth - 1);
 						static const cv::Scalar blackColor(0, 0, 0, 1);
-						cv::line(dInit, cv::Point(cx, cy), cv::Point(lx, cy), blackColor);
+						cv::line(dInit, dbgPt(cx, cy), dbgPt(lx, cy), blackColor);
 						if (j < Nw - 1)
-							cv::line(dInit, cv::Point(cx, cy), cv::Point(rx, cy), blackColor);
+							cv::line(dInit, dbgPt(cx, cy), dbgPt(rx, cy), blackColor);
 #endif
 #ifdef DEBUG_CALC
 						nEdge += (j < Nw - 1) ? 4 : 2;
@@ -1141,14 +1186,14 @@ namespace ahc
 							nodes[cidx]->connect(nodes[cidx + Nw]);
 						}
 #ifdef DEBUG_INIT
-						const int cx = j * windowWidth + 0.5 * (windowWidth - 1);
-						const int cy = i * windowHeight + 0.5 * (windowHeight - 1);
-						const int uy = (i - 1) * windowHeight + 0.5 * (windowHeight - 1);
-						const int dy = (i + 1) * windowHeight + 0.5 * (windowHeight - 1);
+						const double cx = j * windowWidth + 0.5 * (windowWidth - 1);
+						const double cy = i * windowHeight + 0.5 * (windowHeight - 1);
+						const double uy = (i - 1) * windowHeight + 0.5 * (windowHeight - 1);
+						const double dy = (i + 1) * windowHeight + 0.5 * (windowHeight - 1);
 						static const cv::Scalar blackColor(0, 0, 0, 1);
-						cv::line(dInit, cv::Point(cx, cy), cv::Point(cx, uy), blackColor);
+						cv::line(dInit, dbgPt(cx, cy), dbgPt(cx, uy), blackColor);
 						if (i < Nh - 1)
-							cv::line(dInit, cv::Point(cx, cy), cv::Point(cx, dy), blackColor);
+							cv::line(dInit, dbgPt(cx, cy), dbgPt(cx, dy), blackColor);
 #endif
 #ifdef DEBUG_CALC
 						nEdge += (i < Nh - 1) ? 4 : 2;
@@ -1198,19 +1243,20 @@ namespace ahc
 			std::cout << "AH Clustering..." << std::endl;
 #endif
 #if !defined(DEBUG_INIT) && defined(DEBUG_CLUSTER)
-			dInit.create(this->height, this->width, CV_8UC3);
+			dbgScale = this->dbgInitScale();
+			dInit.create(this->height * dbgScale, this->width * dbgScale, CV_8UC3);
 #endif
 #ifdef DEBUG_CLUSTER
 			const int Nw = this->width / this->windowWidth;
 			int dSegCnt = 0;
 			// dSeg.create(this->height, this->width, CV_8UC3);
 			dInit.copyTo(dSeg);
-			dGraph.create(this->height, this->width, CV_8UC3);
+			dGraph.create(this->height * dbgScale, this->width * dbgScale, CV_8UC3);
 			{
 				// this->plotSegmentImage(&dSeg, 0);
-				std::stringstream ss;
-				ss << saveDir << "/output/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
-				cv::imwrite(ss.str(), dSeg);
+				// std::stringstream ss;
+				// ss << saveDir << "/output/cluster/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
+				// cv::imwrite(ss.str(), dSeg);
 				cv::namedWindow("debug ahCluster");
 				cv::imshow("debug ahCluster", dSeg);
 				cv::namedWindow("debug Graph");
@@ -1233,7 +1279,7 @@ namespace ahc
 				this->mseNodeDegree.push_back((int)curr_plane->nbs.size());
 #endif
 #ifdef DEBUG_CLUSTER
-				int cx, cy;
+				double cx, cy;
 				{
 					dSeg.copyTo(dGraph);
 					const int blkid = curr_plane->rid;
@@ -1243,7 +1289,7 @@ namespace ahc
 					cx = j * windowWidth + 0.5 * (windowWidth - 1);
 					cy = i * windowHeight + 0.5 * (windowHeight - 1);
 					static const cv::Scalar blackColor(0, 0, 255, 1);
-					cv::circle(dGraph, cv::Point(cx, cy), 3, blackColor, 2);
+					cv::circle(dGraph, dbgPt(cx, cy), 3, blackColor, 2);
 				}
 #endif
 				PlaneSeg::shared_ptr cand_merge;
@@ -1285,11 +1331,11 @@ namespace ahc
 					const int n_blkid = nb->rid;
 					const int i = n_blkid / Nw;
 					const int j = n_blkid - i * Nw;
-					const int mx = j * windowWidth + 0.5 * (windowWidth - 1);
-					const int my = i * windowHeight + 0.5 * (windowHeight - 1);
+					const double mx = j * windowWidth + 0.5 * (windowWidth - 1);
+					const double my = i * windowHeight + 0.5 * (windowHeight - 1);
 					static const cv::Scalar blackColor(0, 0, 255, 1);
-					cv::circle(dGraph, cv::Point(mx, my), 3, blackColor, 1);
-					cv::line(dGraph, cv::Point(cx, cy), cv::Point(mx, my), blackColor, 1);
+					cv::circle(dGraph, dbgPt(mx, my), 3, blackColor, 1);
+					cv::line(dGraph, dbgPt(cx, cy), dbgPt(mx, my), blackColor, 1);
 				} // for nbs
 #endif	
 				// CAN MERGE
@@ -1301,14 +1347,14 @@ namespace ahc
 						const int n_blkid = cand_nb->rid;
 						const int i = n_blkid / Nw;
 						const int j = n_blkid - i * Nw;
-						const int mx = j * windowWidth + 0.5 * (windowWidth - 1);
-						const int my = i * windowHeight + 0.5 * (windowHeight - 1);
+						const double mx = j * windowWidth + 0.5 * (windowWidth - 1);
+						const double my = i * windowHeight + 0.5 * (windowHeight - 1);
 						static const cv::Scalar blackColor(0, 0, 255, 1);
-						cv::circle(dGraph, cv::Point(mx, my), 2, blackColor, 2);
-						cv::line(dGraph, cv::Point(cx, cy), cv::Point(mx, my), blackColor, 2);
+						cv::circle(dGraph, dbgPt(mx, my), 2, blackColor, 2);
+						cv::line(dGraph, dbgPt(cx, cy), dbgPt(mx, my), blackColor, 2);
 						std::stringstream ss;
-						ss << saveDir << "/output/dGraph_" << std::setw(5) << std::setfill('0') << ++dSegCnt << ".png";
-						cv::imwrite(ss.str(), dGraph);
+						// ss << saveDir << "/output/dGraph/dGraph_" << std::setw(5) << std::setfill('0') << ++dSegCnt << ".png";
+						// cv::imwrite(ss.str(), dGraph);
 						cv::imshow("debug Graph", dGraph);
 					}
 #endif
@@ -1329,7 +1375,7 @@ namespace ahc
 					{
 						floodFillColor(cand_merge->rid, dSeg, cand_merge->getColor(false));
 						std::stringstream ss;
-						ss << saveDir << "/output/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
+						ss << saveDir << "/output/cluster/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
 						cv::imwrite(ss.str(), dSeg);
 						cv::imshow("debug ahCluster", dSeg);
 						cv::waitKey(5);
@@ -1349,24 +1395,24 @@ namespace ahc
 						const int blkid = curr_plane->rid;
 						const int i = blkid / Nw;
 						const int j = blkid - i * Nw;
-						const int ex = j * windowWidth + 0.5 * (windowWidth - 1);
-						const int ey = i * windowHeight + 0.5 * (windowHeight - 1);
+						const double ex = j * windowWidth + 0.5 * (windowWidth - 1);
+						const double ey = i * windowHeight + 0.5 * (windowHeight - 1);
 						static const cv::Scalar blackColor(0, 0, 0, 1);
 						const int len = 3;
 						{
-							cv::line(dGraph, cv::Point(ex - len, ey), cv::Point(ex + len, ey), blackColor, 2);
-							cv::line(dGraph, cv::Point(ex, ey - len), cv::Point(ex, ey + len), blackColor, 2);
+							cv::line(dGraph, dbgPt(ex - len, ey), dbgPt(ex + len, ey), blackColor, 2);
+							cv::line(dGraph, dbgPt(ex, ey - len), dbgPt(ex, ey + len), blackColor, 2);
 							std::stringstream ss;
-							ss << saveDir << "/output/dGraph_" << std::setw(5) << std::setfill('0') << ++dSegCnt << ".png";
-							cv::imwrite(ss.str(), dGraph);
+							ss << saveDir << "/output/dGraph/dGraph_" << std::setw(5) << std::setfill('0') << ++dSegCnt << ".png";
+							// cv::imwrite(ss.str(), dGraph);
 							cv::imshow("debug Graph", dGraph);
 						}
 						{
 							floodFillColor(curr_plane->rid, dSeg, curr_plane->getColor(false));
-							cv::line(dSeg, cv::Point(ex - len, ey), cv::Point(ex + len, ey), blackColor, 2);
-							cv::line(dSeg, cv::Point(ex, ey - len), cv::Point(ex, ey + len), blackColor, 2);
+							cv::line(dSeg, dbgPt(ex - len, ey), dbgPt(ex + len, ey), blackColor, 2);
+							cv::line(dSeg, dbgPt(ex, ey - len), dbgPt(ex, ey + len), blackColor, 2);
 							std::stringstream ss;
-							ss << saveDir << "/output/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
+							ss << saveDir << "/output/cluster/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
 							cv::imwrite(ss.str(), dSeg);
 							cv::imshow("debug ahCluster", dSeg);
 							cv::waitKey(5);
@@ -1379,14 +1425,14 @@ namespace ahc
 						{
 							floodFillColor(curr_plane->rid, dGraph, cv::Vec3b(0, 0, 0));
 							std::stringstream ss;
-							ss << saveDir << "/output/dGraph_" << std::setw(5) << std::setfill('0') << ++dSegCnt << ".png";
+							ss << saveDir << "/output/dGraph/dGraph_" << std::setw(5) << std::setfill('0') << ++dSegCnt << ".png";
 							cv::imwrite(ss.str(), dGraph);
 							cv::imshow("debug Graph", dGraph);
 						}
 						{
 							floodFillColor(curr_plane->rid, dSeg, cv::Vec3b(0, 0, 0));
 							std::stringstream ss;
-							ss << saveDir << "/output/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
+							ss << saveDir << "/output/cluster/cluster_" << std::setw(5) << std::setfill('0') << dSegCnt << ".png";
 							cv::imwrite(ss.str(), dSeg);
 							cv::imshow("debug ahCluster", dSeg);
 							cv::waitKey(5);
@@ -1419,9 +1465,9 @@ namespace ahc
 #ifdef DEBUG_CLUSTER
 			{
 				std::stringstream ss;
-				ss << saveDir << "/output/cluster_" << std::setw(5) << std::setfill('0') << (++dSegCnt) << ".png";
+				ss << saveDir << "/output/cluster/cluster_" << std::setw(5) << std::setfill('0') << (++dSegCnt) << ".png";
 				cv::imwrite(ss.str(), dSeg);
-				exit(-1);
+				// exit(-1);
 			}
 #endif
 			static PlaneSegSizeCmp sizecmp;

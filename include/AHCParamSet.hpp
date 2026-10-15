@@ -95,7 +95,9 @@ struct ParamSet {
 		case P_INIT:
 			return std::pow(depthSigma*z*z+stdTol_init,2);
 		case P_MERGING:
+			return std::pow(depthSigma*z*z+stdTol_merge,2);
 		case P_REFINE:
+			return std::pow(depthSigma*z*z+stdTol_merge,2);
 		default:
 			return std::pow(depthSigma*z*z+stdTol_merge,2);
 		}
